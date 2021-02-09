@@ -1,0 +1,252 @@
+#install.packages("quantmod") # Para extraer obtener los datos de las empresas
+#install.packages("data.table") # Para cambiar formatos xls a tablas
+#install.packages("fPortfolio") # Para elaborar la curva de frontera eficiente 
+#install.packages("timeSeries") # Para hacer la línea de tiempo 
+#install.packages("dplyr")
+#install.packages("PerformanceAnalytics")
+#install.packages("ggplot2")
+library(quantmod)
+library(dplyr)
+library(data.table)
+library(fPortfolio)
+library(timeSeries)
+library(quantmod)
+library(dplyr)
+library(PerformanceAnalytics)
+library(ggplot2)
+
+
+# Comenzaremos listando las acciones de las empresas indexadas al DOW JONES 
+# Los datos son obtenidos de Yahoo Finance
+
+# PG | The Procter & Gamble Company
+# CSCO | Cisco Systems, Inc.
+# AXP | American Express Company
+# UNH | UnitedHealth Group Incorporated
+# MMM | 3M Company
+# CRM | salesforce.com, inc.
+# IBM | International Business Machines Corporation
+# DIS | The Walt Disney Company 
+# WMT | Walmart Inc.
+# KO | The Coca-Cola Company	
+# JNJ | Johnson & Johnson
+# HON | Honeywell International Inc.
+# MCD | McDonald's Corporation
+# VZ | Verizon Communications Inc.
+# CAT | Caterpillar Inc.
+# GS | The Goldman Sachs Group, Inc.
+# INTC | Intel Corporation	
+# MRK | Merck & Co., Inc. 
+# V | Visa Inc. 
+# NKE | NIKE, Inc. 
+# HD | The Home Depot, Inc.
+# AAPL | Apple Inc. 
+# TRV | The Travelers Companies, Inc.	
+# WBA | Walgreens Boots Alliance, Inc.
+# JPM | JPMorgan Chase & Co.	
+# DOW | Dow Inc.  ### No fue posible ocupar esta acción. Leer linea 52. 
+# MSFT | Microsoft Corporation
+# CVX | Chevron Corporation	
+# BA | The Boeing Company 
+
+# Se crea un vector para poder descargar los datos en una sola linea de codigo 
+# Se tuvo que quitar la accion "DOW" ya no tiene el mismo número de datos que 
+# otras empresas. 
+
+DowJones30 <- c("PG","CSCO","AXP","UNH","MMM","CRM","IBM","DIS","WMT","KO","JNJ","HON","MCD","VZ","CAT","GS","INTC","MRK",
+                "V","NKE","HD","AAPL","TRV","WBA","JPM","AMGN","MSFT","CVX","BA")
+
+# Usaremos la funcion "sys.date" que devuelve como valor LA FECHA Y HORA ACTUAL
+# Si usted está leyendo esto el 10 de febrero, obtendrá los datos del 10 de febrero. 
+(DiadeHoy <- Sys.Date())
+
+# Se descargarán los valores de precios de cierre (valor de las acciones al final
+# del día de cierre en EUA, es decir, 15:00) de las emisores a la fecha actual 
+
+# Se están tomando en cuenta 5 años ya que es el común de tiempo necesario para 
+# evaluar las acciones de las empresas y hacer predicciones correctas. 
+
+
+# ADVERTENCIA: La función getSymbols del paquete Quantmod es la que extraerá los 
+# datos financieros de Yahoo finances, puede tardar unos minutos. 
+
+getSymbols(DowJones30,from = "2016-01-01", to = DiadeHoy) 
+
+
+# Ahora obtenemos la tasa de intereses de EUA (porque las acciones son americanas) 
+# y la tomaremos como la "tasa libre de riesgo".
+
+getSymbols("^TNX", from = ("2020-02-06"), to = DiadeHoy) 
+
+# Cierre del dia (actual)
+(T10 <- as.double((TNX$TNX.Close[1,1])/100))
+
+T10
+
+# El valor obtenido es la tasa libre de riesgo expresada en decimales, originalmente
+# está expresada en porcentaje. La razon por la que se escoge el valor [1,1] es 
+# porque ocacionalmente dos valores, estamos forzando la obtención del primer 
+# valor. ESTE VALOR LO USAREMOS MÁS ADELANTE, PERO PREFERIMOS QUE SE DESCARGUE AL 
+# PRINCIPIO PARA MAYOR EFICIENCIA. 
+# NOTA EL 02/FEB: Tuvimos que forzar la obtención del dato del día 02 de febrero,
+# por problemas de la página de obtención de los datos.
+
+
+# Ahora crearemos una lista de la información extraída, el formato original es 
+# xts, entonces tendríamos conflictos para hacer operaciones. 
+
+lista30 <- list(PG,CSCO,AXP,UNH,MMM,CRM,IBM,DIS,WMT,KO,JNJ,HON,MCD,VZ,CAT,GS,INTC,MRK,
+  V,NKE,HD,AAPL,TRV,WBA,JPM,AMGN,MSFT,CVX,BA) 
+
+
+# Convirtiendo en tablas. Ahora los datos se ven mejor y ya podemos hacer operaciones.
+
+tabla30 <- as.data.table(lista30, keep.rownames = TRUE, key = NULL)
+tabla30
+
+
+# Seleccionamos los datos que nos importan (Fecha y Cierre)
+# Recuerda que el cierre es el valor de la acción al final del día. 
+
+
+DOWJONES_CIERRE <- as.matrix(select(tabla30, contains("Close"))) # Valores de cierre
+
+DOWJONES_CIERRE_FECHAS <-as.matrix(select(tabla30, "index")) # Fechas
+
+
+# Hacemos una lista con 
+dimnames(DOWJONES_CIERRE) <- list(DOWJONES_CIERRE_FECHAS,DowJones30) #Definimos las filas y columnas 
+
+
+# Para obtener el rendimiento, necesitamos dividir la resta del valor del cierre
+# del día n, menos el valor del día anterior (n - 1), entre (n - 1) 
+
+# Seleccionamos el numero de columnas para poder hacer operaciones 
+
+(n <- nrow(DOWJONES_CIERRE))
+
+# Obtenemos el rendimiento diario de las acciones 
+
+matriz.rendimientos <- ((DOWJONES_CIERRE[2:n,]-DOWJONES_CIERRE[1:(n-1),])/DOWJONES_CIERRE[1:(n-1),]) #Seleccionamos el n?mero de columnas para poder hacer operciones.
+
+
+# Ahora que ya tenemos la matriz de rendimientos, obtendremos la media. Esta la
+# interpretamos como el rendimiento esperado. 
+rendimiento.esperado <- colMeans(matriz.rendimientos)
+
+# Haremos un portafolio donde las 30 empresas tienen un porcentaje de inversión 
+# igual. O sea, si usted invierte en este portafolio, le está dando la misma 
+# cantidad de inversión a todas. 
+
+pesos_iguales <- rep(1/29, 29) 
+
+# El rendimiento del portafolio se obtiene con la traspuesta de la multiplicación
+# de la matriz del porcentaje de inversión (pesos_iguales) y la matriz con los 
+# rendimientos esperados. 
+
+rendimiento.portafolio <- t(pesos_iguales)%*%rendimiento.esperado
+
+rendimiento.portafolio
+
+# Ahora obtendremos las covarianzas, que nos indica cómo actúan las acciones de 
+# una empresa con respecto a la otra. 
+
+varianza_covarianza <- cov(matriz.rendimientos)
+
+# Finalmente, obtendremos la varianza del portafolio como un conjunto con la 
+# siguiente operación: 
+
+varianza_portafolio <- t(pesos_iguales)%*%(varianza_covarianza%*%pesos_iguales)
+
+
+
+# El riesgo o volatilidad de una acción es la fluctuación de la misma con respecto 
+# a la media, así que el riesgo del portafolio se obtiene con la desviación 
+# estándar.
+s.d.portafolio <- sqrt(varianza_portafolio)
+s.d.portafolio
+
+# Entonces, un portafolio conformado con porcentajes de inversión iguales de 
+# las 30 empresas tendrá un rendimiento de 0.01494% y un riesgo de 1.22%
+
+
+
+# Ahora que hemos visto cómo se obtiene el rendimiento y el riesgo de un 
+# portafolio, hagamos lo mismo pero para todas las combinaciones posibles de 
+# portafolios que podrían obtenerse con las 30 empresas.
+
+
+# Para poder continuar debemos de transformar nuestra matriz a serie de tiempo, 
+# ya que la función que usaremos del paquete fPortfolio lo requiere. 
+
+serie_tiempo <- as.timeSeries(matriz.rendimientos)
+
+
+# La función "portfolioFrontier" elabora los portafolios con las combinaciones 
+# de peso posibles de las empresas. 
+
+frontera_eficiente <- portfolioFrontier(
+    serie_tiempo, `setRiskFreeRate<-`(portfolioSpec(), (T10/360)
+                                             ),
+    constraints = "LongOnly"
+)
+
+(frontera_eficiente)
+
+
+# Ahora haremos una gráfica donde se observará la distribución de los portafolios 
+# con respecto al riesgo y el rendimiento. 
+
+# 1: Elaborar solo frontera eficiente
+# 2: Se?alar el portafolio de minima varianza
+# 3: Se?ar Portafolio de tangencia (considerando tasa de libre riesgo)
+# 4: Graficar con punto el riesgo retorno de las acciones que forman parte de los portafolio
+# 5: Graficar el portafolio con pesos iguales 
+# 6: Frontera de dos activos 
+# 7: Portafolio de Monte Carlo 
+# 8: Razon de Sharpe 
+
+plot(frontera_eficiente, c(1,2,3,4,7))
+
+# La curva superior con los puntos más remarcados contiene los portafolios más 
+# eficientes. En los siguientes objetos podrá detallar los pesos de las empresas y 
+# los riesgos.
+
+
+pesos_frontera <- getWeights(frontera_eficiente)
+
+riesgo_rendimiento_frontera <- frontierPoints(frontera_eficiente)
+
+
+
+# Podemos obtener el portafolio con la mínima varianza, o menor riesgo
+
+
+(portafolio_var_min <- minvariancePortfolio(
+    serie_tiempo, `setRiskFreeRate<-`(portfolioSpec(), T10/360),
+    constraints = "LongOnly"
+))
+
+# Aquí podemos observar el peso que se le da a cada empresa en el portafolio e
+pesos_var_min <- getWeights(portafolio_var_min)
+View(pesos_var_min)
+
+# Ahora haremos algunas gráficas, pero tendremos que cambiar el formato de los
+# datos 
+View(pesos_var_min)
+barplot(pesos_var_min)
+pie(pesos_var_min)
+
+
+
+# Portafolio en donde mas se optimiza la razon de sharpe
+
+portafolio_tangencia <- tangencyPortfolio(serie_tiempo, `setRiskFreeRate<-`(portfolioSpec(), T10/360),
+                                                          constraints = "LongOnly")
+peso_portafolio_tangencia <- getWeights(portafolio_tangencia)
+View(peso_portafolio_tangencia)
+barplot(peso_portafolio_tangencia)
+pie(peso_portafolio_tangencia)
+
+
+##### GRACIAS POR SU ATENCIÓN ######
